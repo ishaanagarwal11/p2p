@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>P2P Text Editor</title>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <h2>P2P Text Editor</h2>
+  <button id="createBtn">Create Session</button>
+  <input id="pinInput" placeholder="Enter PIN">
+  <button id="joinBtn">Join Session</button>
+  <br><br>
+  <textarea id="editor" rows="10" cols="40"></textarea>
+  <pre id="log"></pre>
+
+  <script>
+    const logBox = document.getElementById("log");
+    const log = (msg) => logBox.textContent += msg + "\n";
+
+    const socket = io();
+    let pc, channel, peerId;
+
+    const editor = document.getElementById("editor");
+
+    function createPeerConnection() {
+      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate && peerId) {
+          socket.emit("signal", { to: peerId, data: { candidate: e.candidate } });
+        }
+      };
+
+      pc.ondatachannel = (e) => setupChannel(e.channel);
+    }
+
+    function setupChannel(ch) {
+      channel = ch;
+      channel.onopen = () => log("✅ Data channel open!");
+      channel.onmessage = (e) => {
+        editor.value = e.data;
+        log("📩 Received update");
+      };
+    }
+
+    editor.oninput = () => {
+      if (channel?.readyState === "open") {
+        channel.send(editor.value);
+        log("📤 Sent update");
+      }
+    };
+
+    // Socket events
+    socket.on("sessionCreated", (pin) => log("📌 Share this PIN: " + pin));
+    socket.on("peerFound", (id) => { peerId = id; });
+    socket.on("peerJoined", async (id) => {
+      peerId = id;
+      createPeerConnection();
+      const ch = pc.createDataChannel("editor");
+      setupChannel(ch);
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("signal", { to: id, data: { sdp: pc.localDescription } });
+      log("📤 Sent offer");
+    });
+
+    socket.on("signal", async ({ from, data }) => {
+      peerId = from;
+      if (data.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        log("📥 Got SDP: " + data.sdp.type);
+
+        if (data.sdp.type === "offer") {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit("signal", { to: from, data: { sdp: pc.localDescription } });
+          log("📤 Sent answer");
+        }
+      } else if (data.candidate) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); log("➕ Added ICE"); } catch {}
+      }
+    });
+
+    // Buttons
+    document.getElementById("createBtn").onclick = () => {
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
+      socket.emit("createSession", pin);
+      log("🆕 Created session...");
+    };
+
+    document.getElementById("joinBtn").onclick = () => {
+      const pin = document.getElementById("pinInput").value;
+      socket.emit("joinSession", pin);
+      createPeerConnection();
+      log("🔎 Attempting to join with PIN: " + pin);
+    };
+  </script>
+</body>
+</html>
