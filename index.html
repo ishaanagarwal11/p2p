@@ -115,20 +115,20 @@
 </head>
 <body>
   <div class="app">
-    <header>P2P Editor</header>
+    <header>suschat</header>
     
     <div class="controls">
       <button id="createBtn">Create</button>
       <input id="pinInput" placeholder="PIN">
       <button id="joinBtn">Join</button>
-      <button id="disconnectBtn">Disconnect</button>
+      <button id="disconnectBtn">X</button>
     </div>
 
     <main>
       <textarea id="editor" placeholder="Start typing..."></textarea>
 
       <div class="file-upload">
-        <label for="fileInput">Upload Image</label>
+        <label for="fileInput">sus btn</label>
         <input type="file" id="fileInput" accept="image/*">
       </div>
       <img id="preview">
@@ -330,10 +330,19 @@
 
     // Buttons
     document.getElementById("createBtn").onclick = () => {
-      const pin = Math.floor(100000 + Math.random() * 900000).toString();
-      socket.emit("createSession", pin);
-      addLog("Session created :)");
+    // 2-digit PIN (10–99)
+    const pin = Math.floor(10 + Math.random() * 90).toString();
+
+    // Put it in the input box
+    document.getElementById("pinInput").value = pin;
+
+    // Send to server
+    socket.emit("createSession", pin);
+
+    // Show in logs
+    addLog("Session created with PIN " + pin + " :)");
     };
+
 
     document.getElementById("joinBtn").onclick = () => {
       const pin = document.getElementById("pinInput").value;
