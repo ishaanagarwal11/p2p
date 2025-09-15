@@ -1,40 +1,202 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>P2P Text Editor</title>
-  <!-- Use Socket.IO from CDN instead of relying on server -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>suschat</title>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    textarea { width: 100%; height: 200px; }
-    pre { background: #f5f5f5; padding: 10px; }
+    body {
+      font-family: "Courier New", monospace;
+      margin: 0;
+      padding: 0;
+      background: #f5f1e6; /* cream */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .app {
+      background: #fdfcf7; /* light beige */
+      width: 90%;
+      max-width: 420px;
+      height: 90vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #e6ddc6;
+      color: #333;
+      padding: 12px;
+      text-align: center;
+      font-size: 1.2em;
+      font-weight: bold;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px;
+      background: #f2ecdb;
+    }
+    .controls input, .controls button {
+      flex: 1;
+      padding: 8px;
+      font-size: 14px;
+      background: #fffaf0;
+      color: #333;
+    }
+    .controls button {
+      cursor: pointer;
+    }
+    .controls button#createBtn,
+    .controls button#joinBtn {
+      background: #e8dbc5;
+    }
+    .controls button#disconnectBtn {
+      background: #e0bfbf;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    textarea {
+      flex: 1;
+      padding: 10px;
+      font-size: 15px;
+      margin-bottom: 10px;
+      background: #fffaf0;
+      color: #333;
+    }
+    .file-upload {
+      margin-bottom: 10px;
+      text-align: center;
+    }
+    .file-upload input {
+      display: none;
+    }
+    .file-upload label {
+      display: inline-block;
+      padding: 8px 16px;
+      background: #e8dbc5;
+      cursor: pointer;
+      font-size: 14px;
+      color: #333;
+    }
+    #preview {
+      margin-top: 6px;
+      max-width: 100%;
+      display: none;
+    }
+    .logs {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    #latestLogs {
+      background: #f2ecdb;
+      padding: 6px;
+      font-size: 13px;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    #mainLogs {
+      background: #fffaf0;
+      padding: 6px;
+      font-size: 13px;
+      flex: 1;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
-  <h2>P2P Text Editor</h2>
-  <button id="createBtn">Create Session</button>
-  <input id="pinInput" placeholder="Enter PIN">
-  <button id="joinBtn">Join Session</button>
-  <br><br>
-  <textarea id="editor" rows="10" cols="40"></textarea>
-  <pre id="log"></pre>
+  <div class="app">
+    <header>P2P Editor</header>
+    
+    <div class="controls">
+      <button id="createBtn">Create</button>
+      <input id="pinInput" placeholder="PIN">
+      <button id="joinBtn">Join</button>
+      <button id="disconnectBtn">Disconnect</button>
+    </div>
+
+    <main>
+      <textarea id="editor" placeholder="Start typing..."></textarea>
+
+      <div class="file-upload">
+        <label for="fileInput">Upload Image</label>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <img id="preview">
+
+      <div class="logs">
+        <div id="latestLogs"></div>
+        <div id="mainLogs"></div>
+      </div>
+    </main>
+  </div>
 
   <script>
-    const logBox = document.getElementById("log");
-    const log = (msg) => logBox.textContent += msg + "\n";
+    const latestBox = document.getElementById("latestLogs");
+    const mainBox = document.getElementById("mainLogs");
 
-    // 👇 Connect explicitly to your Render server
+    let latestLogs = [];
+
+    const addLog = (msg) => {
+      const timestamp = Date.now();
+      const entry = { msg, timestamp };
+
+      // Add to latest logs
+      latestLogs.unshift(entry);
+      if (latestLogs.length > 5) {
+        const moved = latestLogs.pop();
+        appendToMain(moved);
+      }
+      renderLatest();
+
+      // Auto-expire main logs after 1 min
+      setTimeout(() => {
+        const nodes = [...mainBox.childNodes];
+        for (let n of nodes) {
+          if (n.dataset.ts == timestamp) {
+            mainBox.removeChild(n);
+          }
+        }
+      }, 60000);
+    };
+
+    const renderLatest = () => {
+    latestBox.innerHTML = "";
+    latestLogs.forEach((entry) => {
+        const line = document.createElement("div");
+        line.textContent = entry.msg;
+        line.dataset.ts = entry.timestamp;
+        // Prepend newest at top
+        latestBox.prepend(line);
+    });
+    };
+
+
+    const appendToMain = (entry) => {
+      const line = document.createElement("div");
+      line.textContent = entry.msg;
+      line.dataset.ts = entry.timestamp;
+      mainBox.insertBefore(line, mainBox.firstChild);
+    };
+
     const socket = io("https://p2p-ein8.onrender.com");
 
     let pc, channel, peerId;
     const editor = document.getElementById("editor");
+    const fileInput = document.getElementById("fileInput");
+    const preview = document.getElementById("preview");
 
     function createPeerConnection() {
-      pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" }
-        ]
-      });
+      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
       pc.onicecandidate = (e) => {
         if (e.candidate && peerId) {
@@ -47,22 +209,92 @@
 
     function setupChannel(ch) {
       channel = ch;
-      channel.onopen = () => log("✅ Data channel open!");
+      channel.onopen = () => addLog("Connected :)");
+      channel.onclose = () => handleDisconnect();
       channel.onmessage = (e) => {
-        editor.value = e.data;
-        log("📩 Received update");
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "text") {
+            editor.value = data.value;
+          } else if (data.type === "image") {
+            showImageTemporary(data.value);
+            addLog("Image received :)");
+          }
+        } catch {
+          addLog("Unknown message :(");
+        }
       };
     }
 
-    editor.oninput = () => {
+    function sendData(type, value) {
       if (channel?.readyState === "open") {
-        channel.send(editor.value);
-        log("📤 Sent update");
+        channel.send(JSON.stringify({ type, value }));
       }
+    }
+
+    editor.oninput = () => sendData("text", editor.value);
+
+    // Resize + compress image before sending
+    fileInput.onchange = () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const scale = Math.min(400 / img.width, 1);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const resized = canvas.toDataURL("image/jpeg", 0.7);
+
+        // Show immediately
+        preview.src = resized;
+        preview.style.display = "block";
+        addLog("Image sent :)");
+
+        sendData("image", resized);
+
+        // Vanish for sender too
+        setTimeout(() => {
+        preview.style.display = "none";
+        addLog("Image vanished :)");
+        }, 1000);
+
+        // Send to peer
+        sendData("image", resized);
+
+        };
+      };
+      reader.readAsDataURL(file);
     };
 
-    // Socket.IO events
-    socket.on("sessionCreated", (pin) => log("📌 Share this PIN: " + pin));
+    function showImageTemporary(src) {
+      preview.src = src;
+      preview.style.display = "block";
+      setTimeout(() => {
+        preview.style.display = "none";
+        addLog("Image vanished :)");
+      }, 1000);
+    }
+
+    function handleDisconnect() {
+      addLog("Disconnected :(");
+      editor.value = "";
+      preview.style.display = "none";
+      peerId = null;
+      if (channel) channel.close();
+      if (pc) pc.close();
+      channel = null;
+      pc = null;
+    }
+
+    // Socket events
+    socket.on("sessionCreated", (pin) => addLog("Share PIN: " + pin));
     socket.on("peerFound", (id) => { peerId = id; });
     socket.on("peerJoined", async (id) => {
       peerId = id;
@@ -73,25 +305,25 @@
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       socket.emit("signal", { to: id, data: { sdp: pc.localDescription } });
-      log("📤 Sent offer");
+      addLog("Offer sent :)");
     });
 
     socket.on("signal", async ({ from, data }) => {
       peerId = from;
       if (data.sdp) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-        log("📥 Got SDP: " + data.sdp.type);
+        addLog("Got " + data.sdp.type + " :)");
 
         if (data.sdp.type === "offer") {
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit("signal", { to: from, data: { sdp: pc.localDescription } });
-          log("📤 Sent answer");
+          addLog("Answer sent :)");
         }
       } else if (data.candidate) {
         try { 
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); 
-          log("➕ Added ICE"); 
+          addLog("ICE added :)"); 
         } catch {}
       }
     });
@@ -100,14 +332,19 @@
     document.getElementById("createBtn").onclick = () => {
       const pin = Math.floor(100000 + Math.random() * 900000).toString();
       socket.emit("createSession", pin);
-      log("🆕 Created session...");
+      addLog("Session created :)");
     };
 
     document.getElementById("joinBtn").onclick = () => {
       const pin = document.getElementById("pinInput").value;
       socket.emit("joinSession", pin);
       createPeerConnection();
-      log("🔎 Attempting to join with PIN: " + pin);
+      addLog("Joining session " + pin + " :)");
+    };
+
+    document.getElementById("disconnectBtn").onclick = () => {
+      handleDisconnect();
+      addLog("You disconnected :)");
     };
   </script>
 </body>
