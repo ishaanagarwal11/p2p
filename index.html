@@ -2,7 +2,13 @@
 <html>
 <head>
   <title>P2P Text Editor</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- Use Socket.IO from CDN instead of relying on server -->
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    textarea { width: 100%; height: 200px; }
+    pre { background: #f5f5f5; padding: 10px; }
+  </style>
 </head>
 <body>
   <h2>P2P Text Editor</h2>
@@ -17,13 +23,18 @@
     const logBox = document.getElementById("log");
     const log = (msg) => logBox.textContent += msg + "\n";
 
-    const socket = io();
-    let pc, channel, peerId;
+    // 👇 Connect explicitly to your Render server
+    const socket = io("https://p2p-ein8.onrender.com");
 
+    let pc, channel, peerId;
     const editor = document.getElementById("editor");
 
     function createPeerConnection() {
-      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" }
+        ]
+      });
 
       pc.onicecandidate = (e) => {
         if (e.candidate && peerId) {
@@ -50,7 +61,7 @@
       }
     };
 
-    // Socket events
+    // Socket.IO events
     socket.on("sessionCreated", (pin) => log("📌 Share this PIN: " + pin));
     socket.on("peerFound", (id) => { peerId = id; });
     socket.on("peerJoined", async (id) => {
@@ -78,7 +89,10 @@
           log("📤 Sent answer");
         }
       } else if (data.candidate) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); log("➕ Added ICE"); } catch {}
+        try { 
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); 
+          log("➕ Added ICE"); 
+        } catch {}
       }
     });
 
